@@ -1,4 +1,4 @@
-package org.apache.spark.mllib.feature.languagedetection.language
+package org.apache.spark.ml.feature.languagedetection.language
 
 /**
   * Language is a enumeration enumerating all the languages that

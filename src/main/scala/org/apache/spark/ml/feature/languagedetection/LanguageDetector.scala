@@ -1,4 +1,4 @@
-package org.apache.spark.mllib.feature.languagedetection
+package org.apache.spark.ml.feature.languagedetection
 
 import java.nio.charset.Charset
 import java.util
@@ -21,7 +21,7 @@ object LanguageDetector {
     * @return
     */
   private[this] def computeGrams(data: Dataset[(String, String)],
-                   gramLengths: Seq[Int]): Dataset[(String, Array[Byte], Int)] = {
+                   gramLengths: Seq[Int]): Dataset[(String, Seq[Byte], Int)] = {
     import data.sparkSession.implicits._
 
     data
@@ -33,11 +33,11 @@ object LanguageDetector {
                 // Compute the occurrences of gram per language
                 text
                   .getBytes(Charset.forName("UTF-8"))
+                  .toSeq
                   .sliding(gramLength)
                   .toSeq
                   .groupBy(identity)
                   .mapValues(_.size)
-                  .toSeq
                   .map{case (gram, count) => (lang, gram, count)}
             }
       }
@@ -47,9 +47,9 @@ object LanguageDetector {
     * For each gram: Sum up the counts
     * @param grams
     */
-  private[this] def reduceGrams( grams: Dataset[(String, Array[Byte], Int)],
-                   supportedLanguages: Array[String]
-                 ): Dataset[(String, Array[Byte], Int)] = {
+  private[this] def reduceGrams( grams: Dataset[(String, Seq[Byte], Int)],
+                   supportedLanguages: Seq[String]
+                 ): Dataset[(String, Seq[Byte], Int)] = {
     import grams.sparkSession.implicits._
 
     supportedLanguages
@@ -70,8 +70,8 @@ object LanguageDetector {
     * and compute Log(1.0 + P)
     */
 
-  private[this] def computeProbabilities(grams: Dataset[(String, Array[Byte], Int)],
-                           supportedLanguages: Array[String]): Dataset[(Array[Byte], Array[Double])] = {
+  private[this] def computeProbabilities(grams: Dataset[(String, Seq[Byte], Int)],
+                           supportedLanguages: Seq[String]): Dataset[(Seq[Byte], Array[Double])] = {
     import grams.sparkSession.implicits._
 
     grams
@@ -83,6 +83,7 @@ object LanguageDetector {
           val langProbs = supportedLanguages
             .map{lang => itSeq.count(_._1 == lang).toDouble / itSeq.size.toDouble}
             .map(d => Math.log(1.0 + d))
+            .toArray
 
           (gram, langProbs)
       }
@@ -95,13 +96,13 @@ object LanguageDetector {
     * @param gramProbabilities
     */
   private[this] def filterTopGrams(
-                      gramProbabilities: Dataset[(Array[Byte], Array[Double])],
+                      gramProbabilities: Dataset[(Seq[Byte], Array[Double])],
                       supportedLanguages: Seq[String],
                       languageProfileSize: Int
                     ) = {
     import gramProbabilities.sparkSession.implicits._
 
-    val topGramSet: Set[Array[Byte]] = supportedLanguages
+    val topGramSet: Set[Seq[Byte]] = supportedLanguages
       .indices
       .flatMap(i =>
         gramProbabilities
@@ -112,16 +113,17 @@ object LanguageDetector {
       )
       .toSet
 
-    val bTopGramSet: Broadcast[Set[Array[Byte]]] = gramProbabilities
+    val bTopGramSet: Broadcast[Set[Seq[Byte]]] = gramProbabilities
       .sparkSession
       .sparkContext
       .broadcast(topGramSet)
 
     gramProbabilities
       .filter { gramProbPair =>
-        bTopGramSet.value.exists{arr => arr sameElements gramProbPair._1}
+        bTopGramSet.value.contains{gramProbPair._1}
       }
   }
+//  bTopGramSet.value.exists{arr => arr sameElements gramProbPair._1}
 
   /**
     * Compute the probabilitie of a n-gram occurring in a particular language.
@@ -137,8 +139,8 @@ object LanguageDetector {
                                 data: Dataset[(String, String)],
                                 gramLengths: Seq[Int],
                                 languageProfileSize: Int,
-                                supportedLanguages: Array[String]
-                             ): Dataset[(Array[Byte], Array[Double])] = {
+                                supportedLanguages: Seq[String]
+                             ): Dataset[(Seq[Byte], Array[Double])] = {
     // Compute all grams from
     val grams = computeGrams(data, gramLengths).cache()
 
@@ -167,7 +169,7 @@ object LanguageDetector {
 
 class LanguageDetector(
                         val uid: String,
-                        val supportedLanguages: Array[String],
+                        val supportedLanguages: Seq[String],
                         val gramLengths: Seq[Int],
                         val languageProfileSize: Int
                       )
@@ -175,7 +177,7 @@ class LanguageDetector(
     with HasInputCol with HasLabelCol {
 
   def this(
-            supportedLanguages: Array[String],
+            supportedLanguages: Seq[String],
             gramLengths: Seq[Int],
             languageProfileSize: Int) = this(
     Identifiable.randomUID("LanguageDetector"),
@@ -212,14 +214,14 @@ class LanguageDetector(
         }
     )
 
-    val gramProbabilities: Dataset[(Array[Byte], Array[Double])] = LanguageDetector.computeGramProbabilities(
+    val gramProbabilities: Dataset[(Seq[Byte], Array[Double])] = LanguageDetector.computeGramProbabilities(
       inputTrainingData,
       gramLengths,
       languageProfileSize,
       supportedLanguages
     )
 
-    val probabilitiesMap: Map[Array[Byte], Array[Double]] = gramProbabilities
+    val probabilitiesMap: Map[Seq[Byte], Array[Double]] = gramProbabilities
       .collect
       .toMap
 
