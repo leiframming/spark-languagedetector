@@ -1,6 +1,7 @@
 package scala.org.apache.spark.ml.feature.languagedetection
 
 import org.apache.log4j.{Level, Logger}
+import org.apache.spark.ml.feature.languagedetection.LanguageDetector
 import org.specs2.mutable.Specification
 
 class LanguageDetectorSpecs extends Specification {
@@ -9,6 +10,7 @@ class LanguageDetectorSpecs extends Specification {
   val logger = Logger.getLogger("org")
   logger.setLevel(Level.ERROR)
 
+  import Spark.session.implicits._
 
   "We can fit a basic model" >> {
 

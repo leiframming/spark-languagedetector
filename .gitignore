@@ -4,7 +4,7 @@
 # http://www.scala-sbt.org/release/docs/Getting-Started/Directories.html#configuring-version-control
 .idea
 project/project
-project/target  
+project/target
 dist/*
 target/
 lib_managed/

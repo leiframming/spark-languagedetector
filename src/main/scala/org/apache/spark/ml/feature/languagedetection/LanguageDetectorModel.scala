@@ -1,4 +1,4 @@
-package org.apache.spark.mllib.feature.languagedetection
+package org.apache.spark.ml.feature.languagedetection
 
 import java.util.UUID
 
@@ -9,7 +9,7 @@ import org.apache.spark.ml.linalg.{BLAS, DenseVector}
 import org.apache.spark.ml.param.shared.{HasInputCol, HasOutputCol}
 import org.apache.spark.ml.param.ParamMap
 import org.apache.spark.ml.util.{Identifiable, SchemaUtils}
-import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
+import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
 import org.apache.spark.sql.types.{StringType, StructType}
 import org.apache.spark.sql.{DataFrame, Dataset, Row}
 
@@ -43,8 +43,8 @@ object LanguageDetectorModel {
     * @param text
     */
   def detect(text: Array[Byte],
-             probabilityMap: Map[Array[Byte], Array[Double]],
-             supportedLanguages: Array[String],
+             probabilityMap: Map[Seq[Byte], Array[Double]],
+             supportedLanguages: Seq[String],
              gramLengths: Seq[Int]): String = {
     val random = new Random()
     val defaultProb = Array.fill(supportedLanguages.length)(0.0).map(_ => random.nextGaussian())
@@ -57,7 +57,7 @@ object LanguageDetectorModel {
           .sliding(gramLength)
           .foreach { byteSeq =>
             probabilityMap
-              .get(byteSeq.toArray)
+              .get(byteSeq)
               .foreach{ probs =>
                 val gramProb = new DenseVector(probs)
                 BLAS.axpy(1.0, gramProb, probabilities)
@@ -69,8 +69,8 @@ object LanguageDetectorModel {
     supportedLanguages(maxProbIndex)
   }
 
-  def detect(text: String, probabilityMap: Map[Array[Byte], Array[Double]],
-             supportedLanguages: Array[String],
+  def detect(text: String, probabilityMap: Map[Seq[Byte], Array[Double]],
+             supportedLanguages: Seq[String],
              gramLengths: Seq[Int]): String = {
     detect(text.toCharArray.map(_.toByte),
       probabilityMap,
@@ -90,16 +90,16 @@ object LanguageDetectorModel {
   *
   */
 class LanguageDetectorModel(override val uid: String,
-                            val gramProbabilities: Map[Array[Byte], Array[Double]],
+                            val gramProbabilities: Map[Seq[Byte], Array[Double]],
                             val gramLenghts: Seq[Int],
-                            val supportedLanguages: Array[String])
+                            val supportedLanguages: Seq[String])
   extends Model[LanguageDetectorModel]
     with HasInputCol
     with HasOutputCol {
 
-  def this(gramProbabilities:  Map[Array[Byte], Array[Double]],
+  def this(gramProbabilities:  Map[Seq[Byte], Array[Double]],
            gramLengths: Seq[Int],
-           languages: Array[String]) = {
+           languages: Seq[String]) = {
     this(
       uid = Identifiable.randomUID("LanguageDetectorModel"),
       gramProbabilities,
@@ -131,6 +131,7 @@ class LanguageDetectorModel(override val uid: String,
     val schema = transformSchema(dataset.schema)
     val bProbabilitiesMap = dataset.sparkSession.sparkContext.broadcast(gramProbabilities)
 
+    implicit val encoder: ExpressionEncoder[Row] = RowEncoder(schema)
     dataset
         .toDF()
         .map{row =>
@@ -144,7 +145,7 @@ class LanguageDetectorModel(override val uid: String,
             supportedLanguages,
             gramLenghts)
           Row.fromSeq(row.toSeq :+ detectedLanguage.toString)
-      }(ExpressionEncoder())
+      }(encoder)
       .toDF
   }
 
