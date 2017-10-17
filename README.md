@@ -1,4 +1,4 @@
-= spark-languagedetector =
+# spark-languagedetector 
 
 This is a language detection algorithm using n-grams of bytes to use with the big data framework Spark.  
 
