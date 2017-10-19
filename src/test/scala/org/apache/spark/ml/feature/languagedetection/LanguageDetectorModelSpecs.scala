@@ -1,4 +1,4 @@
-package scala.org.apache.spark.ml.feature.languagedetection
+package org.apache.spark.ml.feature.languagedetection
 
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.ml.feature.languagedetection.LanguageDetectorModel
@@ -45,5 +45,7 @@ class LanguageDetectorModelSpecs extends Specification {
 
 
   }
+
+
 
 }

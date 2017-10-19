@@ -3,39 +3,125 @@ package org.apache.spark.ml.feature.languagedetection
 import java.util.UUID
 
 import breeze.linalg.argmax
+import org.apache.hadoop.fs.Path
+import org.apache.spark.internal.Logging
+import org.apache.spark.ml.feature.languagedetection
 import org.apache.spark.ml.{Model, Transformer}
 import org.apache.spark.ml.feature.languagedetection.language.Language
 import org.apache.spark.ml.linalg.{BLAS, DenseVector}
 import org.apache.spark.ml.param.shared.{HasInputCol, HasOutputCol}
 import org.apache.spark.ml.param.ParamMap
-import org.apache.spark.ml.util.{Identifiable, SchemaUtils}
+import org.apache.spark.ml.util._
 import org.apache.spark.sql.catalyst.encoders.{ExpressionEncoder, RowEncoder}
 import org.apache.spark.sql.types.{StringType, StructType}
-import org.apache.spark.sql.{DataFrame, Dataset, Row}
+import org.apache.spark.sql.{DataFrame, Dataset, Row, SaveMode}
 
 import scala.util.Random
 
 
-object LanguageDetectorModel {
+object LanguageDetectorModel extends MLReadable[LanguageDetectorModel] {
 
+  override def read: LanguageDetectorModelReader = new LanguageDetectorModelReader
+  override def load(path: String): LanguageDetectorModel = super.load(path)
 
+  class LanguageDetectorModelWriter(instance: LanguageDetectorModel)
+    extends MLWriter with Logging {
 
-  /**
-    * Ugly but fast pairwise log odds as difference between the odds in log space
-    * @param vec
-    * @return
-    */
-  def computePairwiseLogOdds(vec: DenseVector): Array[Double] = {
-    val arr = vec.toArray
-    val l = arr.length
-    val resultVector = Array.fill(l * l)(0.0)
-    arr.indices.dropRight(1).foreach{
-      i => arr.indices.drop(i+1).foreach{
-        j => resultVector(i*l + j) = arr(i) - arr(j)
-      }
+    override def saveImpl(path: String): Unit = {
+      val session = sparkSession
+      import session.implicits._
+      // Save the model to a file. This means especially saving the probability map,
+      // detectable gramsizes and supported languages to a file
+
+      // Write the metadata to disk
+      DefaultParamsWriter.saveMetadata(instance, path, sc)
+
+      // Write the gram probabilities to disk
+      sparkSession
+        .createDataset(instance.gramProbabilities.toSeq)
+        .write
+        .mode(SaveMode.Overwrite)
+        .parquet(path + "/probabilities/")
+
+      // Write the supported Languages to disk
+      sparkSession
+        .createDataset(instance.supportedLanguages)
+        .write
+        .mode(SaveMode.Overwrite)
+        .parquet(path + "/supportedLanguages/")
+
+      // Write the supported Languages to disk
+      sparkSession
+        .createDataset(instance.gramLenghts)
+        .write
+        .mode(SaveMode.Overwrite)
+        .parquet(path + "/gramLengths/")
     }
-    resultVector
   }
+
+  class LanguageDetectorModelReader
+    extends MLReader[LanguageDetectorModel] {
+
+    /** Checked against metadata when loading model */
+    private val className = classOf[LanguageDetectorModel].getName
+
+    override def load(path: String): LanguageDetectorModel = {
+      val session = sparkSession
+      import session.implicits._
+
+      val metadata = DefaultParamsReader.loadMetadata(path, sc, className)
+
+      // Load gram probabilities:
+      val gramProbs = sparkSession
+        .read
+        .parquet(path + "/probabilities/")
+        .as[(Seq[Byte], Array[Double])]
+        .collect()
+        .toMap
+
+      val supportedLanguages = sparkSession
+        .read
+        .parquet(path + "/supportedLanguages/")
+        .as[String]
+        .collect()
+        .toSeq
+
+      val gramLenghts = sparkSession
+        .read
+        .parquet(path + "/gramLengths/")
+        .as[Int]
+        .collect()
+        .toSeq
+
+      val model = new LanguageDetectorModel(
+        uid = metadata.uid,
+        gramProbabilities = gramProbs,
+        supportedLanguages = supportedLanguages,
+        gramLenghts = gramLenghts)
+
+      DefaultParamsReader.getAndSetParams(model, metadata)
+      model
+    }
+  }
+
+
+
+//  /**
+//    * Ugly but fast pairwise log odds as difference between the odds in log space
+//    * @param vec
+//    * @return
+//    */
+//  def computePairwiseLogOdds(vec: DenseVector): Array[Double] = {
+//    val arr = vec.toArray
+//    val l = arr.length
+//    val resultVector = Array.fill(l * l)(0.0)
+//    arr.indices.dropRight(1).foreach{
+//      i => arr.indices.drop(i+1).foreach{
+//        j => resultVector(i*l + j) = arr(i) - arr(j)
+//      }
+//    }
+//    resultVector
+//  }
 
   /**
     * Detect the language: Compute grams from the byte array and compute the
@@ -95,7 +181,10 @@ class LanguageDetectorModel(override val uid: String,
                             val supportedLanguages: Seq[String])
   extends Model[LanguageDetectorModel]
     with HasInputCol
-    with HasOutputCol {
+    with HasOutputCol
+    with Logging
+    with MLWritable
+{
 
   def this(gramProbabilities:  Map[Seq[Byte], Array[Double]],
            gramLengths: Seq[Int],
@@ -112,6 +201,7 @@ class LanguageDetectorModel(override val uid: String,
     inputCol -> "fulltext",
     outputCol -> "lang"
   )
+
 
   override def transformSchema(schema: StructType): StructType =  {
     val inputType = schema(getInputCol).dataType
@@ -148,5 +238,8 @@ class LanguageDetectorModel(override val uid: String,
       }(encoder)
       .toDF
   }
+
+  override def write = new LanguageDetectorModel.LanguageDetectorModelWriter(this)
+
 
 }
