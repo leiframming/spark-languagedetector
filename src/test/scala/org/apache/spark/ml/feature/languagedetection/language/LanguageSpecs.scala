@@ -1,4 +1,4 @@
-package scala.org.apache.spark.ml.feature.languagedetection.language
+package org.apache.spark.ml.feature.languagedetection.language
 
 import org.apache.spark.ml.feature.languagedetection.language.Language
 import org.specs2.mutable.Specification
