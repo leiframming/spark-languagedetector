@@ -45,7 +45,7 @@ class WhitespacePreprocessor
           val text = row.getString(textColInd)
 
           // Convert text to lower case based on the locale of the data
-          text.replaceAll("/\_[]*()%^&@$#:|{}<>~`\"\\")
+          val replText = text.replaceAll("/_[]*()%^&@$#:|{}<>~`\"\\", "")
 
           // Put it back into the data frame
           val rowseq = row
@@ -55,7 +55,7 @@ class WhitespacePreprocessor
             .map(_._1)
 
           // Add the new column
-          Row.fromSeq(rowseq ++ Seq(lcText))
+          Row.fromSeq(rowseq ++ Seq(replText))
       }
 
     dataset.toDF
