@@ -2,6 +2,7 @@ package org.apache.spark.ml.feature.languagedetection
 
 import java.nio.charset.Charset
 import java.util
+import java.util.Locale
 
 import org.apache.spark.broadcast.Broadcast
 import org.apache.spark.ml.Estimator
@@ -142,27 +143,19 @@ object LanguageDetector {
                                 supportedLanguages: Seq[String]
                              ): Dataset[(Seq[Byte], Array[Double])] = {
     // Compute all grams from
-    val grams = computeGrams(data, gramLengths).cache()
-
-    grams.show()
+    val grams = computeGrams(data, gramLengths)
 
     // Merge the counts for the grams of
-    val reducedGrams = reduceGrams(grams, supportedLanguages).cache()
-
-    reducedGrams.show()
+    val reducedGrams = reduceGrams(grams, supportedLanguages)
 
     // For each gram: Compute the probability of occurrence for each language
     val probabilities = computeProbabilities(reducedGrams, supportedLanguages).cache()
 
-    probabilities.show(100)
-
     // Filter the n-grams for their language probability: Take only the top k values
     val topGrams = filterTopGrams(probabilities, supportedLanguages, languageProfileSize)
 
-    topGrams.show()
-
+    probabilities.unpersist()
     topGrams
-
   }
 }
 
@@ -191,6 +184,9 @@ class LanguageDetector(
     labelCol -> "lang"
   )
 
+  def setInputCol(value: String): LanguageDetector.this.type = set(inputCol, value)
+  def setLabelCol(value: String): LanguageDetector.this.type = set(labelCol, value)
+
   override def transformSchema(schema: StructType): StructType = schema
   override def copy(extra: ParamMap): Estimator[LanguageDetectorModel] = defaultCopy(extra)
 
@@ -201,8 +197,18 @@ class LanguageDetector(
     val inputTrainingData = dataset
       .select($(labelCol), $(inputCol))
       .as[(String, String)]
-      .filter(langTextPair => supportedLanguages.contains(langTextPair._1))
       .cache()
+
+
+    // Check if all input training data are from supported languages
+    inputTrainingData
+      .map(_._1)
+      .distinct
+      .foreach{lang =>
+        if (!supportedLanguages.contains(lang))
+          throw new Exception(s"Input data contians $lang, but it is not " +
+            s"in the list of supported languages")
+      }
 
 
     // Check if input training data contains values for each language
@@ -220,6 +226,8 @@ class LanguageDetector(
       languageProfileSize,
       supportedLanguages
     )
+
+    inputTrainingData.unpersist()
 
     val probabilitiesMap: Map[Seq[Byte], Array[Double]] = gramProbabilities
       .collect
