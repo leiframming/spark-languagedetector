@@ -5,15 +5,16 @@ import java.util
 import java.util.Locale
 
 import org.apache.spark.broadcast.Broadcast
+import org.apache.spark.internal.Logging
 import org.apache.spark.ml.Estimator
 import org.apache.spark.ml.param.shared.{HasInputCol, HasLabelCol}
-import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.ml.param.{Param, ParamMap}
 import org.apache.spark.ml.util.Identifiable
-import org.apache.spark.sql.Dataset
+import org.apache.spark.sql.{Dataset, SaveMode}
 import org.apache.spark.sql.types.StructType
 
 
-object LanguageDetector {
+object LanguageDetector extends Logging {
 
   /**
     * Compute grams for each text
@@ -162,6 +163,13 @@ object LanguageDetector {
     probabilities.unpersist()
     topGrams
   }
+
+  def save[T](saveFile: String, ds: Dataset[T]): Unit = {
+    logInfo(s"Saving dataset to $saveFile")
+    val writer = ds.write.format("parquet")
+    writer.mode(SaveMode.Overwrite).save(saveFile)
+  }
+
 }
 
 
@@ -191,6 +199,10 @@ class LanguageDetector(
 
   def setInputCol(value: String): LanguageDetector.this.type = set(inputCol, value)
   def setLabelCol(value: String): LanguageDetector.this.type = set(labelCol, value)
+
+  val saveGramsToHDFS = new Param[Option[String]](this, "saveGrams", "Persist the dataset of grams to HDFS")
+  def setSaveGramsToHDFS(value: Option[String]): LanguageDetector.this.type = set(saveGramsToHDFS, value)
+  setDefault(saveGramsToHDFS -> None)
 
   override def transformSchema(schema: StructType): StructType = schema
   override def copy(extra: ParamMap): Estimator[LanguageDetectorModel] = defaultCopy(extra)
@@ -230,13 +242,20 @@ class LanguageDetector(
       gramLengths,
       languageProfileSize,
       supportedLanguages
-    )
+    ).cache()
 
     inputTrainingData.unpersist()
+
+
+    $(saveGramsToHDFS).foreach(s =>LanguageDetector.save(s, gramProbabilities))
+
 
     val probabilitiesMap: Map[Seq[Byte], Array[Double]] = gramProbabilities
       .collect
       .toMap
+
+
+    gramProbabilities.unpersist()
 
     new LanguageDetectorModel(
       gramProbabilities = probabilitiesMap,
