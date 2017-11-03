@@ -9,6 +9,7 @@ val libDeps = Seq(
 
 
 lazy val common = Project("spark-languagedetector", file("."))
+    .enablePlugins(GitVersioning)
   .configs(IntegrationTest)
   .settings(
     name := "scala-languagedetector",
@@ -16,5 +17,6 @@ lazy val common = Project("spark-languagedetector", file("."))
     organization := "lbl",
     version := "0.0.1",
     libraryDependencies ++= libDeps,
-    Defaults.itSettings
+    Defaults.itSettings,
+    git.useGitDescribe := true
   )
