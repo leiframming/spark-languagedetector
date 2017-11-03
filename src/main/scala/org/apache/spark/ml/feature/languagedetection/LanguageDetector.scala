@@ -103,28 +103,28 @@ object LanguageDetector {
                     ) = {
     import gramProbabilities.sparkSession.implicits._
 
-    val topGramSet: Set[Seq[Byte]] = supportedLanguages
+    val topGramSet = supportedLanguages
       .indices
-      .flatMap(i =>
+      .map(i =>
         gramProbabilities
           .map{ case (gram, probs) => (gram, probs(i))}
           .sort($"_2".desc)
-          .take(languageProfileSize)
+          .limit(languageProfileSize)
           .map(_._1)
       )
-      .toSet
-
-    val bTopGramSet: Broadcast[Set[Seq[Byte]]] = gramProbabilities
-      .sparkSession
-      .sparkContext
-      .broadcast(topGramSet)
+      .reduce(_ union _)
+      .withColumnRenamed("_1", "gram")
+      .as[Seq[Byte]]
 
     gramProbabilities
-      .filter { gramProbPair =>
-        bTopGramSet.value.contains{gramProbPair._1}
-      }
+      .joinWith(
+        topGramSet,
+        gramProbabilities("_2") === topGramSet("gram")
+      )
+      .map(_._1)
+
   }
-//  bTopGramSet.value.exists{arr => arr sameElements gramProbPair._1}
+
 
   /**
     * Compute the probabilitie of a n-gram occurring in a particular language.
