@@ -107,19 +107,24 @@ object LanguageDetector {
       .indices
       .map(i =>
         gramProbabilities
-          .map{ case (gram, probs) => (gram, probs(i))}
-          .sort($"_2".desc)
-          .limit(languageProfileSize)
-          .map(_._1)
+          .map{ case (gram, probs) => (supportedLanguages(i), gram, probs(i))}
+          .groupByKey{case (lang, gram, prob) => lang}
+          .flatMapGroups{
+              case (lang, it) =>
+                it
+                  .toSeq
+                  .sortBy(_._3)(Ordering.Double.reverse)
+                  .take(languageProfileSize)
+                  .map{case (l,g,p) => g}
+            }
       )
       .reduce(_ union _)
-      .withColumnRenamed("_1", "gram")
-      .as[Seq[Byte]]
+
 
     gramProbabilities
       .joinWith(
         topGramSet,
-        gramProbabilities("_2") === topGramSet("gram")
+        gramProbabilities("_1") === topGramSet("value")
       )
       .map(_._1)
 
