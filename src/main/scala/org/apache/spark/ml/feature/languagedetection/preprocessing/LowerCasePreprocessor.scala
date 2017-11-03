@@ -5,8 +5,10 @@ import java.util.Locale
 import org.apache.spark.internal.Logging
 import org.apache.spark.ml.Transformer
 import org.apache.spark.ml.param.ParamMap
-import org.apache.spark.ml.param.shared.{HasInputCol, HasLabelCol}
-import org.apache.spark.ml.util.SchemaUtils
+import org.apache.spark.ml.param.shared.{HasInputCol, HasLabelCol, HasOutputCol}
+import org.apache.spark.ml.util.{Identifiable, SchemaUtils}
+import org.apache.spark.sql.catalyst.encoders.RowEncoder
+import org.apache.spark.sql.catalyst.expressions.GenericRowWithSchema
 import org.apache.spark.sql.{DataFrame, Dataset, Row}
 import org.apache.spark.sql.types.{StringType, StructType}
 
@@ -14,38 +16,41 @@ import org.apache.spark.sql.types.{StringType, StructType}
   * Simple transformer to lower-case all the input data for the language detection
   *
   */
-class LowerCasePreprocessor
+class LowerCasePreprocessor(override val uid: String)
   extends Transformer
-    with HasInputCol
-  with HasLabelCol
+    with HasOutputCol
+    with HasLabelCol
     with Logging {
 
+  def this() = this(Identifiable.randomUID("LowerCasePreprocessor"))
+
   setDefault(
-    inputCol -> "fulltext",
+    outputCol -> "fulltext",
     labelCol -> "lang"
   )
 
-  def setInputCol(value: String): LowerCasePreprocessor.this.type = set(inputCol, value)
+  def setInputCol(value: String): LowerCasePreprocessor.this.type = set(outputCol, value)
   def setLabelCol(value: String): LowerCasePreprocessor.this.type = set(labelCol, value)
 
 
   override def copy(extra: ParamMap): Transformer = defaultCopy(extra)
 
   override def transformSchema(schema: StructType): StructType = {
-    val filteredSchema = schema.filter(structField => structField.name != $(inputCol))
+    val filteredSchema = schema.filter(structField => structField.name != $(outputCol))
     val filteredStruct = StructType(filteredSchema)
-    SchemaUtils.appendColumn(filteredStruct, $(inputCol), StringType, nullable = true)
+    SchemaUtils.appendColumn(filteredStruct, $(outputCol), StringType, nullable = true)
   }
 
   override def transform(dataset: Dataset[_]): DataFrame = {
     import dataset.sparkSession.implicits._
+    implicit val encoder = RowEncoder(transformSchema(dataset.schema))
 
-    val lowerCaseText = dataset
+    dataset
       .toDF()
       .map{
         (row: Row) =>
 
-          val textColInd = row.fieldIndex($(inputCol))
+          val textColInd = row.fieldIndex($(outputCol))
           val labelColInd = row.fieldIndex($(labelCol))
 
           val lang = row.getString(labelColInd)
@@ -57,15 +62,16 @@ class LowerCasePreprocessor
           // Put it back into the data frame
           val rowseq = row
             .toSeq
+            .toArray
             .zipWithIndex
             .filter(ai => ai._2 != textColInd)
             .map(_._1)
 
           // Add the new column
-          Row.fromSeq(rowseq ++ Seq(lcText))
+          val r: Row = new GenericRowWithSchema(rowseq ++ Array(lcText), transformSchema(row.schema))
+          r
       }
 
-    dataset.toDF
 
   }
 }
