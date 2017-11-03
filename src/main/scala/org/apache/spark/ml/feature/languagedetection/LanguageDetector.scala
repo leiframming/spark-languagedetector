@@ -244,10 +244,10 @@ class LanguageDetector(
       supportedLanguages
     ).cache()
 
-    inputTrainingData.unpersist()
 
 
     $(saveGramsToHDFS).foreach(s =>LanguageDetector.save(s, gramProbabilities))
+    inputTrainingData.unpersist()
 
 
     val probabilitiesMap: Map[Seq[Byte], Array[Double]] = gramProbabilities
