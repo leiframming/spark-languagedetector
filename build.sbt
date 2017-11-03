@@ -12,10 +12,9 @@ lazy val common = Project("spark-languagedetector", file("."))
     .enablePlugins(GitVersioning)
   .configs(IntegrationTest)
   .settings(
-    name := "scala-languagedetector",
+    name := "spark-languagedetector",
     scalaVersion := "2.11.11",
     organization := "lbl",
-    version := "0.0.1",
     libraryDependencies ++= libDeps,
     Defaults.itSettings,
     git.useGitDescribe := true
